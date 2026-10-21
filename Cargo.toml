@@ -1,0 +1,18 @@
+[package]
+name = "teams-cli"
+version = "0.1.0"
+edition = "2024"
+description = "An agent-friendly Microsoft Teams web CLI with local skill discovery"
+license = "MIT"
+
+[[bin]]
+name = "teams"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+walkdir = "2"
+url = "2"
+
+[dev-dependencies]
