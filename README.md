@@ -72,6 +72,25 @@ export TEAMS_CLI_CLIENT_ID=<your-app-registration-client-id>
 export TEAMS_CLI_TENANT=<your-tenant-id>   # defaults to "common"
 ```
 
+**Known failure in some tenants: `AADSTS65002`.** Sign-in with the default
+client ID may fail at the consent step with:
+
+```
+AADSTS65002: Consent between first party application
+'d3590ed6-52b3-4102-aeff-aad2292ab01c' and first party resource
+'00000003-0000-0000-c000-000000000000' must be configured via
+preauthorization - applications owned and operated by Microsoft must get
+approval from the API owner before requesting tokens for that API.
+```
+
+This means Microsoft Graph is not preauthorized for this client ID's chat
+scopes in that tenant — it was reproduced with both `Chat.Read` and the
+broader `Chat.ReadWrite offline_access`, so no scope change fixes it. The
+device-code request itself still succeeds (a real code is issued); the
+failure only appears once you complete sign-in. If you hit this, set
+`TEAMS_CLI_CLIENT_ID` / `TEAMS_CLI_TENANT` to your own app registration
+instead of retrying.
+
 Your app registration needs "Allow public client flows" enabled and the
 `User.Read` and `Chat.Read` delegated permissions.
 

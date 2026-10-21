@@ -20,6 +20,32 @@
 //! Override the client ID (and tenant) with `TEAMS_CLI_CLIENT_ID` /
 //! `TEAMS_CLI_TENANT` once your organization provides its own registration.
 //!
+//! # Known failure: AADSTS65002 (consent not preauthorized)
+//!
+//! In at least one tenant, completing sign-in with this default client ID
+//! fails at the consent step with:
+//!
+//! ```text
+//! AADSTS65002: Consent between first party application
+//! 'd3590ed6-52b3-4102-aeff-aad2292ab01c' and first party resource
+//! '00000003-0000-0000-c000-000000000000' must be configured via
+//! preauthorization - applications owned and operated by Microsoft must
+//! get approval from the API owner before requesting tokens for that API.
+//! ```
+//!
+//! This was reproduced with both `User.Read Chat.Read` and (as a
+//! diagnostic) `User.Read Chat.ReadWrite offline_access`, so it is not
+//! specific to the `Chat.Read` permission — Microsoft Graph
+//! (`00000003-0000-0000-c000-000000000000`) is not preauthorized for this
+//! client ID's chat scopes in that tenant at all. The device-code request
+//! itself succeeds (a real code is issued); the failure only surfaces when
+//! the user completes sign-in and Entra evaluates consent.
+//!
+//! If you hit this error, the default client ID cannot be made to work for
+//! `teams chat` in your tenant; set `TEAMS_CLI_CLIENT_ID` /
+//! `TEAMS_CLI_TENANT` to your own app registration (see the README) instead
+//! of retrying with a different scope string.
+//!
 //! # Scope and token handling
 //!
 //! The only *functional* scope requested is the read-only `Chat.Read`
@@ -45,6 +71,11 @@ pub const DEFAULT_CLIENT_ID: &str = "d3590ed6-52b3-4102-aeff-aad2292ab01c";
 
 /// The delegated scopes this CLI requests: read-only chat access, plus the
 /// baseline `User.Read` Entra requires alongside it (see module docs).
+///
+/// Note: in this tenant, sign-in with this client ID fails at the consent
+/// step with `AADSTS65002` regardless of which Graph chat scope is
+/// requested (confirmed with both `Chat.Read` and `Chat.ReadWrite
+/// offline_access`) — see the module documentation's "Known failure" section.
 const SCOPES: &str = "User.Read Chat.Read";
 
 fn client_id() -> String {
