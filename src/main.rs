@@ -2,7 +2,10 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use teams_cli::{discover_skills, open_teams, print_skill, print_skills};
+use teams_cli::{
+    SkillTarget, discover_skills, install_bundled_skill, open_teams, print_install_results,
+    print_skill, print_skills,
+};
 
 const DEFAULT_TEAMS_URL: &str = "https://teams.microsoft.com/";
 
@@ -49,6 +52,16 @@ enum SkillsCommand {
         /// Skill name or directory name.
         name: String,
     },
+    /// Install this CLI's own skill into agent skill directories so it is auto-discovered.
+    Install {
+        /// Install into this target only (claude, opencode, agents); repeatable. Defaults to all.
+        #[arg(long = "target", value_name = "TARGET")]
+        targets: Vec<SkillTarget>,
+
+        /// Overwrite an existing installed copy.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -59,6 +72,10 @@ fn main() -> Result<()> {
             match command {
                 SkillsCommand::List => print_skills(&skills),
                 SkillsCommand::Show { name } => print_skill(&skills, &name)?,
+                SkillsCommand::Install { targets, force } => {
+                    let results = install_bundled_skill(&targets, force)?;
+                    print_install_results(&results);
+                }
             }
         }
         Command::Web { url, browser } => open_teams(&url, browser.as_deref())?,

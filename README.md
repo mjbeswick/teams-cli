@@ -22,6 +22,10 @@ teams --skills-dir ./agent-skills skills list
 # Print the exact instructions an agent should follow
 teams skills show code-review
 
+# Install this CLI's own skill into Claude/OpenCode/.agents skill directories
+teams skills install
+teams skills install --target claude --force
+
 # Open the Teams web client in the system browser
 teams web
 
@@ -36,6 +40,10 @@ Skill discovery searches recursively for files named `SKILL.md` under:
 - The user's `~/.agents/skills`, `~/.claude/skills`, and `~/.config/opencode/skills` directories.
 
 The optional YAML-style frontmatter fields `name` and `description` are used for listing; the complete file is retained for `skills show`. A missing name falls back to the containing directory name. If duplicate names exist, listing shows every match and `skills show` reports ambiguity instead of choosing arbitrarily.
+
+### Auto-discovery in your coding agent
+
+`teams skills install` writes this CLI's own bundled skill (`skills/teams-cli/SKILL.md`) into `~/.claude/skills/teams-cli/`, `~/.config/opencode/skills/teams-cli/`, and `~/.agents/skills/teams-cli/` — the same directories `teams skills list` already scans. Once installed, any coding agent that scans those conventional directories (including `teams` itself) auto-discovers the `teams-cli` skill without further configuration. Pass `--target claude|opencode|agents` to limit which directory is written, and `--force` to overwrite an existing copy; otherwise an existing file is left as-is.
 
 ## Agent integration
 

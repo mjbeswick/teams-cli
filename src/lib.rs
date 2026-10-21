@@ -185,6 +185,118 @@ fn skill_directory_name(skill: &Skill) -> &str {
         .unwrap_or("")
 }
 
+/// This CLI's own bundled skill, so agents can discover how to drive `teams`.
+const BUNDLED_SKILL_NAME: &str = "teams-cli";
+const BUNDLED_SKILL_CONTENT: &str = include_str!("../skills/teams-cli/SKILL.md");
+
+/// An agent-skill directory convention this CLI can install its bundled skill into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkillTarget {
+    Claude,
+    Opencode,
+    Agents,
+}
+
+impl SkillTarget {
+    pub const ALL: [SkillTarget; 3] = [
+        SkillTarget::Claude,
+        SkillTarget::Opencode,
+        SkillTarget::Agents,
+    ];
+
+    fn relative_dir(self) -> &'static str {
+        match self {
+            SkillTarget::Claude => ".claude/skills",
+            SkillTarget::Opencode => ".config/opencode/skills",
+            SkillTarget::Agents => ".agents/skills",
+        }
+    }
+}
+
+impl std::str::FromStr for SkillTarget {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "claude" => Ok(SkillTarget::Claude),
+            "opencode" => Ok(SkillTarget::Opencode),
+            "agents" => Ok(SkillTarget::Agents),
+            other => Err(format!(
+                "unknown skill target '{other}' (expected claude, opencode, or agents)"
+            )),
+        }
+    }
+}
+
+/// The outcome of attempting to install the bundled skill into one target directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstallOutcome {
+    Installed(PathBuf),
+    AlreadyPresent(PathBuf),
+    NoHomeDirectory,
+}
+
+/// Install this CLI's bundled `teams-cli` skill into the given targets (or all known
+/// targets when empty), so agents that scan those directories auto-discover it.
+///
+/// Returns one outcome per target in the same order; nothing is overwritten unless
+/// `force` is set.
+pub fn install_bundled_skill(
+    targets: &[SkillTarget],
+    force: bool,
+) -> Result<Vec<(SkillTarget, InstallOutcome)>> {
+    let targets: &[SkillTarget] = if targets.is_empty() {
+        &SkillTarget::ALL
+    } else {
+        targets
+    };
+    let Some(home) = home_dir() else {
+        return Ok(targets
+            .iter()
+            .map(|target| (*target, InstallOutcome::NoHomeDirectory))
+            .collect());
+    };
+
+    let mut results = Vec::with_capacity(targets.len());
+    for &target in targets {
+        let dir = home.join(target.relative_dir()).join(BUNDLED_SKILL_NAME);
+        let file = dir.join("SKILL.md");
+        if file.is_file() && !force {
+            results.push((target, InstallOutcome::AlreadyPresent(file)));
+            continue;
+        }
+
+        fs::create_dir_all(&dir)
+            .with_context(|| format!("creating skill directory {}", dir.display()))?;
+        fs::write(&file, BUNDLED_SKILL_CONTENT)
+            .with_context(|| format!("writing skill file {}", file.display()))?;
+        results.push((target, InstallOutcome::Installed(file)));
+    }
+    Ok(results)
+}
+
+pub fn print_install_results(results: &[(SkillTarget, InstallOutcome)]) {
+    for (target, outcome) in results {
+        let label = match target {
+            SkillTarget::Claude => "claude",
+            SkillTarget::Opencode => "opencode",
+            SkillTarget::Agents => "agents",
+        };
+        match outcome {
+            InstallOutcome::Installed(path) => println!("installed\t{label}\t{}", path.display()),
+            InstallOutcome::AlreadyPresent(path) => {
+                println!(
+                    "already present (use --force to overwrite)\t{label}\t{}",
+                    path.display()
+                )
+            }
+            InstallOutcome::NoHomeDirectory => {
+                println!("skipped\t{label}\t(no home directory found)")
+            }
+        }
+    }
+}
+
 /// Open the Teams web client without invoking a shell.
 pub fn open_teams(url: &str, browser: Option<&Path>) -> Result<()> {
     let parsed = url::Url::parse(url).context("invalid Teams URL")?;
@@ -271,5 +383,81 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// Serializes tests that temporarily override `$HOME`, since environment
+    /// variables are process-global.
+    static HOME_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn installs_bundled_skill_and_skips_existing_unless_forced() {
+        let _guard = HOME_ENV_LOCK.lock().unwrap();
+        let fake_home = scratch_dir();
+        fs::create_dir_all(&fake_home).unwrap();
+        let previous_home = env::var_os("HOME");
+        unsafe {
+            env::set_var("HOME", &fake_home);
+        }
+
+        let claude_file = fake_home.join(".claude/skills/teams-cli/SKILL.md");
+
+        let first = install_bundled_skill(&[SkillTarget::Claude], false).unwrap();
+        assert_eq!(
+            first,
+            vec![(
+                SkillTarget::Claude,
+                InstallOutcome::Installed(claude_file.clone())
+            )]
+        );
+        assert_eq!(
+            fs::read_to_string(&claude_file).unwrap(),
+            BUNDLED_SKILL_CONTENT
+        );
+
+        let second = install_bundled_skill(&[SkillTarget::Claude], false).unwrap();
+        assert_eq!(
+            second,
+            vec![(
+                SkillTarget::Claude,
+                InstallOutcome::AlreadyPresent(claude_file.clone())
+            )]
+        );
+
+        fs::write(&claude_file, "stale").unwrap();
+        let forced = install_bundled_skill(&[SkillTarget::Claude], true).unwrap();
+        assert_eq!(
+            forced,
+            vec![(
+                SkillTarget::Claude,
+                InstallOutcome::Installed(claude_file.clone())
+            )]
+        );
+        assert_eq!(
+            fs::read_to_string(&claude_file).unwrap(),
+            BUNDLED_SKILL_CONTENT
+        );
+
+        match previous_home {
+            Some(home) => unsafe { env::set_var("HOME", home) },
+            None => unsafe { env::remove_var("HOME") },
+        }
+        fs::remove_dir_all(fake_home).unwrap();
+    }
+
+    #[test]
+    fn parses_skill_target_names() {
+        assert_eq!(
+            "claude".parse::<SkillTarget>().unwrap(),
+            SkillTarget::Claude
+        );
+        assert_eq!(
+            "opencode".parse::<SkillTarget>().unwrap(),
+            SkillTarget::Opencode
+        );
+        assert_eq!(
+            "agents".parse::<SkillTarget>().unwrap(),
+            SkillTarget::Agents
+        );
+        assert!("bogus".parse::<SkillTarget>().is_err());
     }
 }
