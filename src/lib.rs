@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use walkdir::WalkDir;
 
+pub mod graph;
+
 /// A locally discovered agent skill, backed by its original SKILL.md file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Skill {

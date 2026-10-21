@@ -2,7 +2,7 @@
 
 `teams` is a small Rust command-line wrapper around the Microsoft Teams web client. It also discovers local agent skills and can print their `SKILL.md` instructions so an agent can consume them directly.
 
-This project is an independent web launcher, not an official Microsoft client and not a fork of [teams-for-linux](https://github.com/ISMAELMARTINEZ/teams-for-linux). It does not embed a browser, automate sign-in, inspect Teams pages, or call Microsoft Graph. Authentication remains in the browser session.
+This project is an independent client, not an official Microsoft client and not a fork of [teams-for-linux](https://github.com/ISMAELMARTINEZ/teams-for-linux). `teams web` does not embed a browser or automate sign-in; `teams chat` reads chats through Microsoft Graph with a per-run device-code sign-in (see below).
 
 ## Build
 
@@ -31,7 +31,46 @@ teams web
 
 # Select another browser executable or URL
 teams web --browser /path/to/browser --url https://teams.microsoft.com/
+
+# Sign in (device code) and list your chats
+teams chat list
+
+# Read the most recent messages in one chat
+teams chat messages <chat-id> --top 20
 ```
+
+### Reading chats (`teams chat`)
+
+`teams chat list` and `teams chat messages` sign in with Microsoft's OAuth2
+**device-code flow** and call Microsoft Graph (`GET /me/chats`,
+`GET /me/chats/{id}/messages`) — they do not embed a browser, scrape the
+Teams web UI, or automate the browser session `teams web` opens. Only the
+read-only `Chat.Read` scope is requested; sending, editing, or deleting
+messages is out of scope. **No token is cached**: every invocation prints a
+fresh `https://microsoft.com/devicelogin` code and requires you to complete
+sign-in again.
+
+**Client ID and governance risk.** By default this CLI authenticates using
+Microsoft's own first-party public client ID
+(`d3590ed6-52b3-4102-aeff-aad2292ab01c`, Microsoft's "Microsoft Office"
+application — the same fallback several open-source Graph CLI tools use,
+e.g. [`teams-tui-go`](https://github.com/nospor/teams-tui-go)). It is *not*
+the real Teams application's own client ID, but it is still a trusted
+first-party Microsoft app. Signing in with a first-party client ID may be
+treated by your tenant's Conditional Access or sign-in-risk policies as
+coming from a trusted Microsoft app, which can bypass whatever review your
+organization's own app-registration process is meant to enforce. If your
+organization requires an explicitly registered, reviewed app for
+third-party tools, confirm this approach with your security team before
+relying on it, or override it with your own registration:
+
+```sh
+export TEAMS_CLI_CLIENT_ID=<your-app-registration-client-id>
+export TEAMS_CLI_TENANT=<your-tenant-id>   # defaults to "common"
+```
+
+Your app registration needs "Allow public client flows" enabled and the
+`Chat.Read` delegated permission.
 
 Skill discovery searches recursively for files named `SKILL.md` under:
 

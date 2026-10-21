@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+use teams_cli::graph::{list_chats, list_messages, print_chats, print_messages, sign_in};
 use teams_cli::{
     SkillTarget, discover_skills, install_bundled_skill, open_teams, print_install_results,
     print_skill, print_skills,
@@ -41,6 +42,27 @@ enum Command {
         #[arg(long, env = "TEAMS_CLI_BROWSER")]
         browser: Option<PathBuf>,
     },
+    /// Read-only Teams chat access via Microsoft Graph. Requires a fresh device-code
+    /// sign-in each run (Chat.Read scope); no token is ever written to disk.
+    Chat {
+        #[command(subcommand)]
+        command: ChatCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum ChatCommand {
+    /// List your chats (id, display name, chat type).
+    List,
+    /// List the most recent messages in one chat.
+    Messages {
+        /// Chat id, as shown by `teams chat list`.
+        chat_id: String,
+
+        /// Maximum number of messages to fetch (Graph's default order is newest first).
+        #[arg(long, default_value_t = 20)]
+        top: u32,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -79,6 +101,15 @@ fn main() -> Result<()> {
             }
         }
         Command::Web { url, browser } => open_teams(&url, browser.as_deref())?,
+        Command::Chat { command } => {
+            let token = sign_in()?;
+            match command {
+                ChatCommand::List => print_chats(&list_chats(&token)?),
+                ChatCommand::Messages { chat_id, top } => {
+                    print_messages(&list_messages(&token, &chat_id, top)?)
+                }
+            }
+        }
     }
     Ok(())
 }
