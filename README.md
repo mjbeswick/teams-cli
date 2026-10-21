@@ -44,11 +44,14 @@ teams chat messages <chat-id> --top 20
 `teams chat list` and `teams chat messages` sign in with Microsoft's OAuth2
 **device-code flow** and call Microsoft Graph (`GET /me/chats`,
 `GET /me/chats/{id}/messages`) — they do not embed a browser, scrape the
-Teams web UI, or automate the browser session `teams web` opens. Only the
-read-only `Chat.Read` scope is requested; sending, editing, or deleting
-messages is out of scope. **No token is cached**: every invocation prints a
-fresh `https://microsoft.com/devicelogin` code and requires you to complete
-sign-in again.
+Teams web UI, or automate the browser session `teams web` opens. The only
+*functional* permission requested is the read-only `Chat.Read` scope;
+sending, editing, or deleting messages is out of scope. `User.Read` is also
+requested because Entra's device-code endpoint rejects `Chat.Read` on its
+own with `AADSTS70011` — `User.Read` is the minimal addition that is
+accepted and grants no more than the caller's own basic profile. **No token
+is cached**: every invocation prints a fresh `https://microsoft.com/device`
+code and requires you to complete sign-in again.
 
 **Client ID and governance risk.** By default this CLI authenticates using
 Microsoft's own first-party public client ID
@@ -70,7 +73,7 @@ export TEAMS_CLI_TENANT=<your-tenant-id>   # defaults to "common"
 ```
 
 Your app registration needs "Allow public client flows" enabled and the
-`Chat.Read` delegated permission.
+`User.Read` and `Chat.Read` delegated permissions.
 
 Skill discovery searches recursively for files named `SKILL.md` under:
 

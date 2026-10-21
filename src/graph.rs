@@ -22,9 +22,15 @@
 //!
 //! # Scope and token handling
 //!
-//! Only the read-only `Chat.Read` delegated scope is requested. The access
-//! token is held in memory for the lifetime of the process only; it is never
-//! written to disk, so every invocation requires a fresh device-code sign-in.
+//! The only *functional* scope requested is the read-only `Chat.Read`
+//! delegated permission. `User.Read` is also requested because Entra's
+//! `/devicecode` endpoint rejects `Chat.Read` on its own with
+//! `AADSTS70011: scope ... is not valid` (confirmed against the live
+//! endpoint); `User.Read` is the minimal addition that is accepted and does
+//! not expand access beyond the caller's own basic profile. The access
+//! token is held in memory for the lifetime of the process only; it is
+//! never written to disk, so every invocation requires a fresh device-code
+//! sign-in.
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -37,8 +43,9 @@ use std::time::Duration;
 /// governance implications of using a first-party client ID.
 pub const DEFAULT_CLIENT_ID: &str = "d3590ed6-52b3-4102-aeff-aad2292ab01c";
 
-/// The only delegated scope this CLI requests: read-only chat access.
-const SCOPES: &str = "Chat.Read";
+/// The delegated scopes this CLI requests: read-only chat access, plus the
+/// baseline `User.Read` Entra requires alongside it (see module docs).
+const SCOPES: &str = "User.Read Chat.Read";
 
 fn client_id() -> String {
     env::var("TEAMS_CLI_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string())
@@ -86,15 +93,20 @@ pub fn sign_in() -> Result<String> {
 
     let device_code_url =
         format!("https://login.microsoftonline.com/{tenant}/oauth2/v2.0/devicecode");
-    let dc: DeviceCodeResponse = http
+    let response = http
         .post(&device_code_url)
         .form(&[("client_id", client_id.as_str()), ("scope", SCOPES)])
         .send()
-        .context("requesting device code")?
-        .error_for_status()
-        .context("device code endpoint rejected the request")?
-        .json()
-        .context("parsing device code response")?;
+        .context("requesting device code")?;
+    let status = response.status();
+    let body = response
+        .text()
+        .context("reading device code response body")?;
+    if !status.is_success() {
+        bail!("device code endpoint rejected the request (HTTP {status}): {body}");
+    }
+    let dc: DeviceCodeResponse =
+        serde_json::from_str(&body).context("parsing device code response")?;
 
     println!("{}", dc.message);
 
@@ -179,16 +191,18 @@ pub fn list_chats(token: &str) -> Result<Vec<Chat>> {
         .build()
         .context("building HTTP client")?;
 
-    let page: ChatsPage = http
+    let response = http
         .get("https://graph.microsoft.com/v1.0/me/chats")
         .query(&[("$expand", "members"), ("$top", "50")])
         .bearer_auth(token)
         .send()
-        .context("listing chats")?
-        .error_for_status()
-        .context("Graph rejected the chat list request")?
-        .json()
-        .context("parsing chat list response")?;
+        .context("listing chats")?;
+    let status = response.status();
+    let body = response.text().context("reading chat list response body")?;
+    if !status.is_success() {
+        bail!("Graph rejected the chat list request (HTTP {status}): {body}");
+    }
+    let page: ChatsPage = serde_json::from_str(&body).context("parsing chat list response")?;
 
     Ok(page
         .value
@@ -269,16 +283,21 @@ pub fn list_messages(token: &str, chat_id: &str, top: u32) -> Result<Vec<Message
         .context("building HTTP client")?;
 
     let url = format!("https://graph.microsoft.com/v1.0/me/chats/{chat_id}/messages");
-    let page: MessagesPage = http
+    let response = http
         .get(&url)
         .query(&[("$top", top.to_string())])
         .bearer_auth(token)
         .send()
-        .context("listing messages")?
-        .error_for_status()
-        .context("Graph rejected the message list request")?
-        .json()
-        .context("parsing message list response")?;
+        .context("listing messages")?;
+    let status = response.status();
+    let body = response
+        .text()
+        .context("reading message list response body")?;
+    if !status.is_success() {
+        bail!("Graph rejected the message list request (HTTP {status}): {body}");
+    }
+    let page: MessagesPage =
+        serde_json::from_str(&body).context("parsing message list response")?;
 
     Ok(page
         .value
